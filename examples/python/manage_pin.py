@@ -10,8 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-SERVER_BASE = "https://dns.loxonecloud.com/504F94A10F64"
-AUTH = "s4h:s4h"
+SERVER_BASE = "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL"
+AUTH = "USERNAME:PASSWORD"
 
 def resolve_target_base(server_base: str, auth: str) -> str:
     """Resolve the current Miniserver address without following redirects."""

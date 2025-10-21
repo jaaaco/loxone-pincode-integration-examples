@@ -3,8 +3,8 @@
  * Command-line helper for managing Loxone user PIN codes via CloudDNS.
  */
 
-const SERVER_BASE = process.env.SERVER_BASE || "https://dns.loxonecloud.com/504F94A10F64";
-const AUTH = process.env.AUTH || "s4h:s4h";
+const SERVER_BASE = process.env.SERVER_BASE || "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL";
+const AUTH = process.env.AUTH || "USERNAME:PASSWORD";
 
 if (!SERVER_BASE || !AUTH) {
   console.error("SERVER_BASE and AUTH must be defined");

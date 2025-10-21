@@ -10,11 +10,10 @@ set -euo pipefail
 #   ./pin_workflow.sh show-user <uuid>
 #   ./pin_workflow.sh clear-pin <uuid>
 #
-# SERVER_BASE and AUTH default to the demo credentials but can be
-# overridden via environment variables if needed.
+# Provide placeholders that should be replaced with your real values.
 
-SERVER_BASE="${SERVER_BASE:-https://dns.loxonecloud.com/504F94A10F64}"
-AUTH="${AUTH:-s4h:s4h}"
+SERVER_BASE="${SERVER_BASE:-https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL}"
+AUTH="${AUTH:-USERNAME:PASSWORD}"
 
 if [[ -z "${SERVER_BASE}" || -z "${AUTH}" ]]; then
   echo "SERVER_BASE and AUTH must be set" >&2
