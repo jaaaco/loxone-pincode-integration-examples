@@ -168,3 +168,22 @@ Zalecany schemat integracji (np. z PMS/Hotres):
 ---
 
 © 2025 – Dokumentacja integracyjna Loxone Cloud (PIN Management)
+
+---
+
+## 🧪 Przykładowe skrypty automatyzujące
+
+W katalogu `examples/` znajdziesz gotowe do uruchomienia narzędzia wykorzystujące dane demonstracyjne:
+
+- `examples/bash/pin_workflow.sh` – skrypt Bash z komendami `resolve`, `list-users`, `show-user`, `set-pin`, `clear-pin`.
+- `examples/python/manage_pin.py` – skrypt Python z analogicznym interfejsem (`resolve`, `list`, `show`, `set`, `clear`).
+- `examples/node/managePin.js` – narzędzie Node.js do wykonywania tych samych operacji.
+
+Każdy skrypt domyślnie korzysta z:
+
+```bash
+SERVER_BASE="https://dns.loxonecloud.com/504F94A10F64"
+AUTH="s4h:s4h"
+```
+
+Możesz nadpisać te wartości zmiennymi środowiskowymi (np. `export SERVER_BASE=...`).
