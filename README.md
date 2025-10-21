@@ -26,13 +26,13 @@ curl -u "$AUTH" "$SERVER_BASE"
 
 Przykładowa odpowiedź:
 ```
-Temporary Redirect. Redirecting to https://195-201-222-243.504F94A10F64.dyndns.loxonecloud.com:37868/
+Temporary Redirect. Redirecting to https://203-0-113-42.YOUR-MINISERVER-SERIAL.dyndns.loxonecloud.com:37868/
 ```
 
 Adres z odpowiedzi zapisz jako docelowy:
 
 ```bash
-TARGET_BASE="https://195-201-222-243.504F94A10F64.dyndns.loxonecloud.com:37868"
+TARGET_BASE="https://203-0-113-42.YOUR-MINISERVER-SERIAL.dyndns.loxonecloud.com:37868"
 ```
 
 > ⚠️  Adres i port mogą się zmieniać po restarcie Miniservera — zawsze rozpoczynaj integrację od tego kroku.
@@ -168,3 +168,24 @@ Zalecany schemat integracji (np. z PMS/Hotres):
 ---
 
 © 2025 – Dokumentacja integracyjna Loxone Cloud (PIN Management)
+
+---
+
+## 🧪 Przykładowe skrypty automatyzujące
+
+W katalogu `examples/` znajdziesz gotowe do uruchomienia narzędzia z uzupełnionymi
+wartościami zastępczymi:
+
+- `examples/bash/pin_workflow.sh` – skrypt Bash z komendami `resolve`, `list-users`, `show-user`, `set-pin`, `clear-pin`.
+- `examples/python/manage_pin.py` – skrypt Python z analogicznym interfejsem (`resolve`, `list`, `show`, `set`, `clear`).
+- `examples/node/managePin.js` – narzędzie Node.js do wykonywania tych samych operacji.
+
+Każdy skrypt domyślnie korzysta z symbolicznych wartości:
+
+```bash
+SERVER_BASE="https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL"
+AUTH="USERNAME:PASSWORD"
+```
+
+Przed uruchomieniem podmień je na prawdziwy numer seryjny i dane logowania (np.
+`export SERVER_BASE=...`).
