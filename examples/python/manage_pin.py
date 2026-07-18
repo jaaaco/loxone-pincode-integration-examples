@@ -1,17 +1,33 @@
 #!/usr/bin/env python3
-"""Command-line helper for managing Loxone user PIN codes via CloudDNS."""
+"""Command-line helper for managing Loxone user PIN codes via CloudDNS.
+
+Two integration models:
+  Model A (static user per door):  set-pin / clear-pin
+  Model B (ephemeral user per reservation, in a group):
+    list-groups / create-guest / delete-user
+"""
 
 from __future__ import annotations
 
 import argparse
 import base64
+import json
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 SERVER_BASE = "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL"
 AUTH = "USERNAME:PASSWORD"
+
+# Loxone timestamps count seconds from 2009-01-01 00:00:00 UTC, not the Unix epoch.
+LOXONE_EPOCH_OFFSET = 1230768000
+
+
+def to_loxone_epoch(unix_seconds: int) -> int:
+    return int(unix_seconds) - LOXONE_EPOCH_OFFSET
+
 
 def resolve_target_base(server_base: str, auth: str) -> str:
     """Resolve the current Miniserver address without following redirects."""
@@ -73,11 +89,55 @@ def update_pin(target_base: str, auth: str, uuid: str, pin: str | None) -> str:
     )
 
 
+def list_groups(target_base: str, auth: str) -> str:
+    return get_json(build_target_url(target_base, "/jdev/sps/getgrouplist"), auth)
+
+
+def create_guest(
+    target_base: str,
+    auth: str,
+    group_uuid: str,
+    name: str,
+    pin: str,
+    from_unix: int | None,
+    until_unix: int | None,
+) -> str:
+    start = int(from_unix) if from_unix is not None else int(time.time())
+    end = int(until_unix) if until_unix is not None else start + 86400
+    user = {
+        "name": name,
+        "userState": 4,
+        "usergroups": [group_uuid],
+        "validFrom": to_loxone_epoch(start),
+        "validUntil": to_loxone_epoch(end),
+        "expirationAction": 1,
+        "keycodes": [{"code": pin}],
+    }
+    encoded = urllib.parse.quote(json.dumps(user, separators=(",", ":")), safe="")
+    return get_json(build_target_url(target_base, f"/jdev/sps/addoredituser/{encoded}"), auth)
+
+
+def delete_user(target_base: str, auth: str, uuid: str) -> str:
+    return get_json(build_target_url(target_base, f"/jdev/sps/deleteuser/{uuid}"), auth)
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["resolve", "list", "show", "set", "clear"], help="Action to perform")
-    parser.add_argument("uuid", nargs="?", help="Target user UUID")
-    parser.add_argument("pin", nargs="?", help="PIN value (2-8 digits)")
+    parser.add_argument(
+        "command",
+        choices=[
+            "resolve",
+            "list-users",
+            "show-user",
+            "set-pin",
+            "clear-pin",
+            "list-groups",
+            "create-guest",
+            "delete-user",
+        ],
+        help="Action to perform",
+    )
+    parser.add_argument("args", nargs="*", help="Positional arguments for the command")
     parser.add_argument("--server-base", default=SERVER_BASE, help="CloudDNS base URL")
     parser.add_argument("--auth", default=AUTH, help="Credentials in the form user:password")
     return parser.parse_args(argv)
@@ -87,6 +147,7 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     server_base = args.server_base
     auth = args.auth
+    rest = args.args
 
     if args.command == "resolve":
         print(resolve_target_base(server_base, auth))
@@ -94,20 +155,34 @@ def main(argv: list[str]) -> int:
 
     target_base = resolve_target_base(server_base, auth)
 
-    if args.command == "list":
+    if args.command == "list-users":
         print(list_users(target_base, auth))
-    elif args.command == "show":
-        if not args.uuid:
-            raise SystemExit("UUID is required for the show command")
-        print(show_user(target_base, auth, args.uuid))
-    elif args.command == "set":
-        if not args.uuid or not args.pin:
-            raise SystemExit("UUID and PIN are required for the set command")
-        print(update_pin(target_base, auth, args.uuid, args.pin))
-    elif args.command == "clear":
-        if not args.uuid:
-            raise SystemExit("UUID is required for the clear command")
-        print(update_pin(target_base, auth, args.uuid, None))
+    elif args.command == "show-user":
+        if len(rest) < 1:
+            raise SystemExit("Usage: show-user <uuid>")
+        print(show_user(target_base, auth, rest[0]))
+    elif args.command == "set-pin":
+        if len(rest) < 2:
+            raise SystemExit("Usage: set-pin <uuid> <pin>")
+        print(update_pin(target_base, auth, rest[0], rest[1]))
+    elif args.command == "clear-pin":
+        if len(rest) < 1:
+            raise SystemExit("Usage: clear-pin <uuid>")
+        print(update_pin(target_base, auth, rest[0], None))
+    elif args.command == "list-groups":
+        print(list_groups(target_base, auth))
+    elif args.command == "create-guest":
+        if len(rest) < 3:
+            raise SystemExit(
+                "Usage: create-guest <group-uuid> <name> <pin> [from-unix] [until-unix]"
+            )
+        from_unix = int(rest[3]) if len(rest) > 3 else None
+        until_unix = int(rest[4]) if len(rest) > 4 else None
+        print(create_guest(target_base, auth, rest[0], rest[1], rest[2], from_unix, until_unix))
+    elif args.command == "delete-user":
+        if len(rest) < 1:
+            raise SystemExit("Usage: delete-user <uuid>")
+        print(delete_user(target_base, auth, rest[0]))
     else:
         raise SystemExit(f"Unsupported command: {args.command}")
 

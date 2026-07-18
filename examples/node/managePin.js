@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 /**
  * Command-line helper for managing Loxone user PIN codes via CloudDNS.
+ *
+ * Two integration models:
+ *   Model A (static user per door):  set-pin / clear-pin
+ *   Model B (ephemeral user per reservation, in a group):
+ *     list-groups / create-guest / delete-user
  */
 
 const SERVER_BASE = process.env.SERVER_BASE || "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL";
 const AUTH = process.env.AUTH || "USERNAME:PASSWORD";
 
+// Loxone timestamps count seconds from 2009-01-01 00:00:00 UTC, not the Unix epoch.
+const LOXONE_EPOCH_OFFSET = 1230768000;
+
 if (!SERVER_BASE || !AUTH) {
   console.error("SERVER_BASE and AUTH must be defined");
   process.exit(1);
+}
+
+function toLoxoneEpoch(unixSeconds) {
+  return Math.floor(Number(unixSeconds)) - LOXONE_EPOCH_OFFSET;
 }
 
 function basicAuthHeader(auth) {
@@ -83,52 +95,85 @@ async function callApi(targetBase, path) {
   return response.body;
 }
 
+function buildGuest(groupUuid, name, pin, fromUnix, untilUnix) {
+  const start = fromUnix !== undefined ? Math.floor(Number(fromUnix)) : Math.floor(Date.now() / 1000);
+  const end = untilUnix !== undefined ? Math.floor(Number(untilUnix)) : start + 86400;
+  return {
+    name,
+    userState: 4,
+    usergroups: [groupUuid],
+    validFrom: toLoxoneEpoch(start),
+    validUntil: toLoxoneEpoch(end),
+    expirationAction: 1,
+    keycodes: [{ code: pin }],
+  };
+}
+
 async function main() {
-  const [, , command, arg1, arg2] = process.argv;
+  const [, , command, ...rest] = process.argv;
   if (!command) {
-    console.error("Usage: node managePin.js <resolve|list|show|set|clear> [uuid] [pin]");
+    console.error(
+      "Usage: node managePin.js <resolve|list-users|show-user|set-pin|clear-pin|list-groups|create-guest|delete-user> [args]"
+    );
     process.exit(1);
   }
 
   if (command === "resolve") {
-    const resolved = await resolveTargetBase();
-    console.log(resolved);
+    console.log(await resolveTargetBase());
     return;
   }
 
   const targetBase = process.env.TARGET_BASE || (await resolveTargetBase());
 
   switch (command) {
-    case "list": {
-      const body = await callApi(targetBase, "/jdev/sps/getuserlist2");
-      console.log(body);
+    case "list-users": {
+      console.log(await callApi(targetBase, "/jdev/sps/getuserlist2"));
       break;
     }
-    case "show": {
-      if (!arg1) {
-        console.error("UUID is required for the show command");
+    case "show-user": {
+      if (!rest[0]) {
+        console.error("Usage: show-user <uuid>");
         process.exit(1);
       }
-      const body = await callApi(targetBase, `/jdev/sps/getuser/${arg1}`);
-      console.log(body);
+      console.log(await callApi(targetBase, `/jdev/sps/getuser/${rest[0]}`));
       break;
     }
-    case "set": {
-      if (!arg1 || !arg2) {
-        console.error("UUID and PIN are required for the set command");
+    case "set-pin": {
+      if (!rest[0] || !rest[1]) {
+        console.error("Usage: set-pin <uuid> <pin>");
         process.exit(1);
       }
-      const body = await callApi(targetBase, `/jdev/sps/updateuseraccesscode/${arg1}/${arg2}`);
-      console.log(body);
+      console.log(await callApi(targetBase, `/jdev/sps/updateuseraccesscode/${rest[0]}/${rest[1]}`));
       break;
     }
-    case "clear": {
-      if (!arg1) {
-        console.error("UUID is required for the clear command");
+    case "clear-pin": {
+      if (!rest[0]) {
+        console.error("Usage: clear-pin <uuid>");
         process.exit(1);
       }
-      const body = await callApi(targetBase, `/jdev/sps/updateuseraccesscode/${arg1}/`);
-      console.log(body);
+      console.log(await callApi(targetBase, `/jdev/sps/updateuseraccesscode/${rest[0]}/`));
+      break;
+    }
+    case "list-groups": {
+      console.log(await callApi(targetBase, "/jdev/sps/getgrouplist"));
+      break;
+    }
+    case "create-guest": {
+      if (!rest[0] || !rest[1] || !rest[2]) {
+        console.error("Usage: create-guest <group-uuid> <name> <pin> [from-unix] [until-unix]");
+        process.exit(1);
+      }
+      const guest = buildGuest(rest[0], rest[1], rest[2], rest[3], rest[4]);
+      const encoded = encodeURIComponent(JSON.stringify(guest));
+      console.log(await callApi(targetBase, `/jdev/sps/addoredituser/${encoded}`));
+      break;
+    }
+    case "delete-user": {
+      if (!rest[0]) {
+        console.error("Usage: delete-user <uuid>");
+        process.exit(1);
+      }
+      console.log(await callApi(targetBase, `/jdev/sps/deleteuser/${rest[0]}`));
       break;
     }
     default:
