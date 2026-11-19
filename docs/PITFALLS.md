@@ -155,6 +155,39 @@ porównuj elastycznie.
 
 ## 9. CloudDNS: adres zmienny, zawsze resolwuj od nowa
 
-CloudDNS odpowiada **HTTP 307** na dynamiczny adres Miniservera (host + port).
-Adres i port zmieniają się po restarcie Miniservera. Każdą sesję integracji
-zaczynaj od kroku `resolve`; nie hardkoduj `TARGET_BASE` na stałe po stronie PMS.
+CloudDNS zwraca dynamiczny adres Miniservera (host + port). Adres i port zmieniają
+się po restarcie Miniservera. Każdą sesję integracji zaczynaj od kroku `resolve`;
+nie hardkoduj `TARGET_BASE` na stałe po stronie PMS.
+
+---
+
+## 10. Od ~11.2026: reverse-proxy CloudDNS zamknięty, getip gatuje po User-Agent
+
+Loxone zablokował stary mechanizm. Zweryfikowane `curl`-em na 6 Miniserverach:
+
+- **Reverse-proxy `dns.loxonecloud.com/<serial>/...` jest martwy.** Zarówno goły
+  `/<serial>` (dawniej redirect 307), jak i `/<serial>/jdev/...` zwracają
+  `403 {"error":"Request not permitted"}` — **nawet z poprawnym User-Agent**.
+  Komunikat: *„Access through Loxone Remote Connect is only possible with the
+  Loxone App or Loxone Config."* Integracja, która biła wprost w tę ścieżkę,
+  przestała działać.
+- **`getip` żyje, ale tylko dla User-Agent aplikacji.** `GET
+  https://connect.loxonecloud.com/getip?snr=<SERIAL>&json=true` z nagłówkiem
+  `User-Agent: ktor-client` → `200` i `{"url":"https://<ip>.<SERIAL>.dyndns.loxonecloud.com:<port>"}`.
+  Domyślny UA curla, przeglądarki albo własny string (`Loxone`, `Loxone/16.0
+  (iPhone)` itp.) → `403`. Ustawienie UA na `ktor-client` to jedyny warunek — getip
+  nie wymaga logowania do konta Loxone ani tunelu. (Starszy `dns.loxonecloud.com/getip`
+  z tym samym UA też odpowiada, w legacy-formacie `{"Code":200,"IPHTTPS":...,"PortOpen":...}`.)
+- **Adres zwrócony przez getip to już bezpośrednie połączenie z Miniserverem** —
+  jego publiczny IP, ważny wildcard-cert `*.dyndns.loxonecloud.com`. `GET /`
+  oddaje webinterface (200 text/html), `/jdev/...` całe REST. **Ten host jest
+  UA-niezależny** (działa i z przeglądarki, i z curla) — bo ruch nie idzie już
+  przez proxy CloudDNS, tylko wprost do Miniservera.
+- **Warunek: `PortOpen` / Remote Connect aktywny.** getip zwraca `PortOpen:false` /
+  `Code 418`, gdy Miniserver nie ma otwartego portu (np. CGNAT bez mapowania). Wtedy
+  jedyne wyjście to dostęp lokalny / VPN do sieci obiektu.
+
+Stąd dwukrokowy flow w skryptach: `getip` z UA aplikacji → bezpośredni host.
+Przywraca to również webinterface w zwykłej przeglądarce: rozwiąż adres raz,
+otwórz zwrócony URL `dyndns.loxonecloud.com` wprost (UA przeglądarki tam nie
+przeszkadza), odśwież gdy zmieni się publiczny IP.

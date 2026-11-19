@@ -16,6 +16,10 @@ import pytest
 
 EXPECTED_AUTH = "Basic " + base64.b64encode(b"testuser:testpass").decode("ascii")
 
+# The only User-Agent CloudDNS getip serves (the Loxone app's); see the scripts' RESOLVER_UA.
+EXPECTED_UA = "ktor-client"
+TEST_SERIAL = "504F94A2E318"
+
 # Must match LOXONE_EPOCH_OFFSET in every example script.
 LOXONE_EPOCH_OFFSET = 1230768000
 
@@ -82,11 +86,15 @@ def fake_loxone_server() -> Iterator[FakeServer]:
             self._send_json(json.dumps({"LL": {"value": value, "code": "200"}}))
 
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-            if self.path == "/cloud":
-                location = f"{self.server.target_base}/"
-                self.send_response(307)
-                self.send_header("Location", location)
-                self.end_headers()
+            parsed_path = urllib.parse.urlparse(self.path)
+            if parsed_path.path == "/getip":
+                # CloudDNS getip gate: only the app's User-Agent is served, anything else is 403.
+                if self.headers.get("User-Agent") != EXPECTED_UA:
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b'{"error":"Request not permitted","status":"error"}')
+                    return
+                self._send_json(json.dumps({"url": self.server.target_base}))
                 return
 
             if not self._check_auth():
@@ -184,7 +192,7 @@ def fake_loxone_server() -> Iterator[FakeServer]:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         fake_server = FakeServer(
-            base_url=f"http://{host}:{port}/cloud",
+            base_url=f"http://{host}:{port}",
             target_base=target_base,
             server=server,
             thread=thread,
@@ -215,7 +223,13 @@ def ll_value(stdout: str):
 
 def _bash_env(server: FakeServer) -> dict[str, str]:
     env = os.environ.copy()
-    env.update({"SERVER_BASE": server.base_url, "AUTH": "testuser:testpass"})
+    env.update(
+        {
+            "SERIAL": TEST_SERIAL,
+            "CLOUD_RESOLVER": server.base_url,
+            "AUTH": "testuser:testpass",
+        }
+    )
     return env
 
 
@@ -283,7 +297,9 @@ def _py(server: FakeServer, *args: str) -> subprocess.CompletedProcess[str]:
             sys.executable,
             "examples/python/manage_pin.py",
             *args,
-            "--server-base",
+            "--serial",
+            TEST_SERIAL,
+            "--resolver",
             server.base_url,
             "--auth",
             "testuser:testpass",
@@ -333,7 +349,13 @@ def test_python_model_b() -> None:
 
 def _node_env(server: FakeServer) -> dict[str, str]:
     env = os.environ.copy()
-    env.update({"SERVER_BASE": server.base_url, "AUTH": "testuser:testpass"})
+    env.update(
+        {
+            "SERIAL": TEST_SERIAL,
+            "CLOUD_RESOLVER": server.base_url,
+            "AUTH": "testuser:testpass",
+        }
+    )
     return env
 
 

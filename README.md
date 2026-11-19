@@ -24,7 +24,7 @@ kolejności, i na czym się przejechać. Nie teoria — każdy krok był odpalon
 co normalnie się płaci, bo każda z nich kosztowała parę godzin diagnostyki.
 
 > Jeden z serii poradników smart home dla samodzielnych od
-> [smart.hyte.pl](https://smart.hyte.pl). Materiały, wsparcie i konsultacje na końcu.
+> [hytte.tech](https://hytte.tech). Materiały, wsparcie i konsultacje na końcu.
 
 ---
 
@@ -103,20 +103,30 @@ Skopiuj `.env.example` do `.env.local`, wpisz swoje dane i wczytaj:
 
 ```bash
 cp .env.example .env.local
-# uzupełnij SERVER_BASE i AUTH
+# uzupełnij SERIAL i AUTH
 source .env.local
 ```
 
 ```bash
-SERVER_BASE="https://dns.loxonecloud.com/AABBCCDDEEFF"   # AABBCCDDEEFF = numer seryjny
-AUTH="serwis:twoje-haslo"                                 # konto serwisowe
+SERIAL="AABBCCDDEEFF"        # numer seryjny Miniservera (MAC bez dwukropków)
+AUTH="serwis:twoje-haslo"    # konto serwisowe
 ```
 
-### 1. Znajdź aktualny adres Miniservera (CloudDNS redirect)
+### 1. Znajdź aktualny adres Miniservera (CloudDNS getip)
 
-CloudDNS nie pośredniczy w ruchu — na zapytanie odpowiada przekierowaniem HTTP 307
-na aktualny, dynamiczny adres Twojego Miniservera. **Zawsze zaczynaj integrację od
+CloudDNS nie pośredniczy w ruchu — zwraca tylko aktualny, dynamiczny adres Twojego
+Miniservera, a Ty łączysz się z nim bezpośrednio. **Zawsze zaczynaj integrację od
 tego kroku**, bo adres i port zmieniają się po restarcie Miniservera.
+
+> ⚠️ **Zmiana od ~11.2026.** Loxone zamknął stary reverse-proxy
+> `dns.loxonecloud.com/<serial>/...` — każde żądanie spoza aplikacji Loxone dostaje
+> `403 Request not permitted`. Działa jeszcze endpoint `getip`, ale **tylko dla
+> User-Agent aplikacji** (`ktor-client`); zwykłe curl/przeglądarka/własny UA → 403.
+> Skrypty ustawiają ten nagłówek same (`RESOLVER_UA`). **Sam adres zwrócony przez
+> `getip` jest już bezpośrednim połączeniem z Miniserverem** (jego publiczne IP,
+> ważny cert) i nie wymaga żadnego specjalnego UA — pod niego lecą normalnie
+> wszystkie komendy. Jeśli używałeś starej ścieżki `SERVER_BASE=.../<serial>`,
+> podmień ją na `SERIAL` + `getip`.
 
 ```bash
 ./examples/bash/pin_workflow.sh resolve
@@ -125,7 +135,9 @@ tego kroku**, bo adres i port zmieniają się po restarcie Miniservera.
 
 Ten adres (`TARGET_BASE`) trzymaj w pamięci na czas sesji i wołaj pod niego
 kolejne endpointy. Skrypty resolwują go automatycznie, jeśli nie ustawisz
-`TARGET_BASE` ręcznie.
+`TARGET_BASE` ręcznie. Resolver (`CLOUD_RESOLVER`, domyślnie
+`https://connect.loxonecloud.com`) i UA (`RESOLVER_UA`) też można nadpisać
+środowiskiem.
 
 ### 2. Pobierz listę użytkowników i ich UUID
 
@@ -334,9 +346,9 @@ docs/
 | `create-guest <grupa> <nazwa> <pin> [od] [do]` | `addoredituser` | gość na rezerwację w grupie (Model B) |
 | `delete-user <uuid>` | `deleteuser/<uuid>` | skasuj użytkownika (Model B) |
 
-Wszystkie trzy skrypty przyjmują `SERVER_BASE` i `AUTH` ze środowiska (albo
-argumentów w Pythonie) i domyślnie startują od `resolve`. Odpowiedzi zwracają
-surowo — parsowanie zostawiamy Twojej integracji.
+Wszystkie trzy skrypty przyjmują `SERIAL` i `AUTH` ze środowiska (albo
+argumentów `--serial` / `--auth` w Pythonie) i domyślnie startują od `resolve`.
+Odpowiedzi zwracają surowo — parsowanie zostawiamy Twojej integracji.
 
 Uwagi do `curl` w skryptach:
 - `-s` — tryb cichy (bez paska postępu)
@@ -368,16 +380,16 @@ potrzebujesz, dokładamy dwie rzeczy, których z samego bloga nie wyciśniesz.
 **Sprzęt Loxone, jeden koszyk.** Miniserver, klawiatury NFC, ekstensje —
 z rabatem partnerskim, dobrane pod Twój obiekt. Zamiast składać zamówienie po
 omacku dostajesz komplet, który zagra za pierwszym razem.
-[Sklep: smart.hyte.pl](https://smart.hyte.pl)
+[Sklep: hytte.tech](https://hytte.tech)
 
 **Wsparcie, kiedy utkniesz.** Płatna konsultacja zdalna rozliczana godzinowo albo
 sporadyczna poprawka integracji PMS ↔ Loxone. Nie sprzedajemy abonamentu na coś,
 co i tak działa. Płacisz, gdy realnie potrzebujesz.
-[smart.hyte.pl](https://smart.hyte.pl)
+[hytte.tech](https://hytte.tech)
 
 **Więcej do czytania.** Kolejne poradniki, realizacje z twardymi liczbami i baza
 wiedzy o integracjach Loxone.
-[Realizacje](https://smart.hyte.pl/realizacje) · [smart.hyte.pl](https://smart.hyte.pl)
+[Realizacje](https://hytte.tech/realizacje) · [hytte.tech](https://hytte.tech)
 
 Partner techniczny, nie podwykonawca. Kolega z branży, nie handlowiec. Jak coś
 nie ma sensu, powiemy to wprost.

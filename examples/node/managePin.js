@@ -8,14 +8,22 @@
  *     list-groups / create-guest / delete-user
  */
 
-const SERVER_BASE = process.env.SERVER_BASE || "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL";
+const SERIAL = process.env.SERIAL || "YOUR-MINISERVER-SERIAL"; // 12 hex chars, MAC without colons
 const AUTH = process.env.AUTH || "USERNAME:PASSWORD";
+
+// CloudDNS only resolves a serial for the Loxone app's own User-Agent. Since ~11.2026 any other
+// UA (curl, a browser, a bare integration) gets 403 "Request not permitted", and the old
+// reverse-proxy path dns.loxonecloud.com/<serial>/... is gone for good. getip still answers, and
+// the host it returns is a direct TLS endpoint on the Miniserver's public IP that needs no special
+// UA. So: resolve once with the app's UA, then talk straight to the Miniserver.
+const CLOUD_RESOLVER = process.env.CLOUD_RESOLVER || "https://connect.loxonecloud.com";
+const RESOLVER_UA = process.env.RESOLVER_UA || "ktor-client";
 
 // Loxone timestamps count seconds from 2009-01-01 00:00:00 UTC, not the Unix epoch.
 const LOXONE_EPOCH_OFFSET = 1230768000;
 
-if (!SERVER_BASE || !AUTH) {
-  console.error("SERVER_BASE and AUTH must be defined");
+if (!SERIAL || !AUTH) {
+  console.error("SERIAL and AUTH must be defined");
   process.exit(1);
 }
 
@@ -61,26 +69,38 @@ function httpRequest(url) {
 
 async function resolveTargetBase() {
   const { URL } = require("url");
-  const target = new URL(SERVER_BASE);
-  const https = require(target.protocol === "https:" ? "https" : "http");
+  // getip needs no credentials; the gate is the User-Agent. connect.loxonecloud.com answers
+  // {"url": "https://<ip-with-dashes>.<SERIAL>.dyndns.loxonecloud.com:<port>"}.
+  const resolverUrl = new URL(`${CLOUD_RESOLVER.replace(/\/$/, "")}/getip?snr=${SERIAL}&json=true`);
+  const lib = require(resolverUrl.protocol === "https:" ? "https" : "http");
 
   const options = {
     method: "GET",
-    hostname: target.hostname,
-    port: target.port || (target.protocol === "https:" ? 443 : 80),
-    path: target.pathname + target.search,
-    headers: { Authorization: basicAuthHeader(AUTH) },
+    hostname: resolverUrl.hostname,
+    port: resolverUrl.port || (resolverUrl.protocol === "https:" ? 443 : 80),
+    path: resolverUrl.pathname + resolverUrl.search,
+    headers: { "User-Agent": RESOLVER_UA },
     rejectUnauthorized: false,
   };
 
   return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        resolve(res.headers.location.replace(/\/$/, ""));
-      } else {
-        resolve(SERVER_BASE.replace(/\/$/, ""));
-      }
-      res.resume();
+    const req = lib.request(options, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        let parsed;
+        try {
+          parsed = JSON.parse(body);
+        } catch (err) {
+          reject(new Error(`CloudDNS returned non-JSON: ${body}`));
+          return;
+        }
+        if (!parsed.url) {
+          reject(new Error(`CloudDNS did not return a target address: ${body}`));
+          return;
+        }
+        resolve(parsed.url.replace(/\/$/, ""));
+      });
     });
 
     req.on("error", reject);

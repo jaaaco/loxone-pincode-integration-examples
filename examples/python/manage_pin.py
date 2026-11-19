@@ -18,8 +18,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-SERVER_BASE = "https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL"
+SERIAL = "YOUR-MINISERVER-SERIAL"  # 12 hex chars, the Miniserver MAC without colons
 AUTH = "USERNAME:PASSWORD"
+
+# CloudDNS only resolves a serial for the Loxone app's own User-Agent. Since ~11.2026 any other
+# UA (curl, a browser, a bare integration) gets 403 "Request not permitted", and the old
+# reverse-proxy path dns.loxonecloud.com/<serial>/... is gone for good. getip still answers, and
+# the host it returns is a direct TLS endpoint on the Miniserver's public IP that needs no special
+# UA. So: resolve once with the app's UA, then talk straight to the Miniserver.
+CLOUD_RESOLVER = "https://connect.loxonecloud.com"
+RESOLVER_UA = "ktor-client"
 
 # Loxone timestamps count seconds from 2009-01-01 00:00:00 UTC, not the Unix epoch.
 LOXONE_EPOCH_OFFSET = 1230768000
@@ -29,28 +37,20 @@ def to_loxone_epoch(unix_seconds: int) -> int:
     return int(unix_seconds) - LOXONE_EPOCH_OFFSET
 
 
-def resolve_target_base(server_base: str, auth: str) -> str:
-    """Resolve the current Miniserver address without following redirects."""
-    username, password = auth.split(":", 1)
+def resolve_target_base(serial: str, resolver: str = CLOUD_RESOLVER, ua: str = RESOLVER_UA) -> str:
+    """Resolve the serial to the Miniserver's current direct address via CloudDNS getip.
 
-    class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-            return None
-
-    password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    password_mgr.add_password(None, server_base, username, password)
-    auth_handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
-    opener = urllib.request.build_opener(auth_handler, NoRedirectHandler())
-
-    request = urllib.request.Request(server_base, method="GET")
-    try:
-        with opener.open(request) as response:  # pragma: no cover - expected redirect
-            return response.geturl()
-    except urllib.error.HTTPError as exc:
-        location = exc.headers.get("Location")
-        if exc.code in (301, 302, 303, 307, 308) and location:
-            return location.rstrip("/")
-        raise
+    getip needs no credentials; the gate is the User-Agent. connect.loxonecloud.com answers
+    {"url": "https://<ip-with-dashes>.<SERIAL>.dyndns.loxonecloud.com:<port>"}.
+    """
+    url = f"{resolver.rstrip('/')}/getip?snr={serial}&json=true"
+    request = urllib.request.Request(url, headers={"User-Agent": ua})
+    with urllib.request.urlopen(request) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    target = data.get("url")
+    if not target:
+        raise SystemExit(f"CloudDNS did not return a target address: {data}")
+    return target.rstrip("/")
 
 
 def _authorized_request(url: str, auth: str) -> urllib.request.Request:
@@ -138,22 +138,24 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Action to perform",
     )
     parser.add_argument("args", nargs="*", help="Positional arguments for the command")
-    parser.add_argument("--server-base", default=SERVER_BASE, help="CloudDNS base URL")
+    parser.add_argument("--serial", default=SERIAL, help="Miniserver serial (MAC without colons)")
+    parser.add_argument("--resolver", default=CLOUD_RESOLVER, help="CloudDNS resolver base URL")
     parser.add_argument("--auth", default=AUTH, help="Credentials in the form user:password")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    server_base = args.server_base
+    serial = args.serial
+    resolver = args.resolver
     auth = args.auth
     rest = args.args
 
     if args.command == "resolve":
-        print(resolve_target_base(server_base, auth))
+        print(resolve_target_base(serial, resolver))
         return 0
 
-    target_base = resolve_target_base(server_base, auth)
+    target_base = resolve_target_base(serial, resolver)
 
     if args.command == "list-users":
         print(list_users(target_base, auth))

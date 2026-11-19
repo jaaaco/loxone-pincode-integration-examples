@@ -20,14 +20,22 @@ set -euo pipefail
 #
 # Provide placeholders that should be replaced with your real values.
 
-SERVER_BASE="${SERVER_BASE:-https://dns.loxonecloud.com/YOUR-MINISERVER-SERIAL}"
+SERIAL="${SERIAL:-YOUR-MINISERVER-SERIAL}"      # 12 hex chars, the Miniserver MAC without colons
 AUTH="${AUTH:-USERNAME:PASSWORD}"
+
+# CloudDNS only resolves a serial for the Loxone app's own User-Agent. Since ~11.2026 any other
+# UA (curl, a browser, a bare integration) gets 403 "Request not permitted", and the old
+# reverse-proxy path dns.loxonecloud.com/<serial>/... is gone for good. getip still answers, and
+# the host it returns is a direct TLS endpoint on the Miniserver's public IP that needs no special
+# UA. So: resolve once with the app's UA, then talk straight to the Miniserver.
+CLOUD_RESOLVER="${CLOUD_RESOLVER:-https://connect.loxonecloud.com}"
+RESOLVER_UA="${RESOLVER_UA:-ktor-client}"
 
 # Loxone timestamps count seconds from 2009-01-01 00:00:00 UTC, not the Unix epoch.
 LOXONE_EPOCH_OFFSET=1230768000
 
-if [[ -z "${SERVER_BASE}" || -z "${AUTH}" ]]; then
-  echo "SERVER_BASE and AUTH must be set" >&2
+if [[ -z "${SERIAL}" || -z "${AUTH}" ]]; then
+  echo "SERIAL and AUTH must be set" >&2
   exit 1
 fi
 
@@ -49,13 +57,16 @@ urlencode() {
 }
 
 resolve_target_base() {
-  local redirect
-  redirect=$(curl -sk -u "${AUTH}" -w '%{redirect_url}' -o /dev/null "${SERVER_BASE}")
-  if [[ -z "${redirect}" ]]; then
-    echo "Failed to resolve target base" >&2
+  local body url
+  # getip is public (no auth); the gate is the User-Agent. connect.loxonecloud.com answers
+  # {"url":"https://<ip-with-dashes>.<SERIAL>.dyndns.loxonecloud.com:<port>"}.
+  body=$(curl -sk -A "${RESOLVER_UA}" "${CLOUD_RESOLVER}/getip?snr=${SERIAL}&json=true")
+  url=$(printf '%s' "${body}" | sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  if [[ -z "${url}" ]]; then
+    echo "Failed to resolve target base (CloudDNS said: ${body})" >&2
     exit 1
   fi
-  echo "${redirect%/}"
+  echo "${url%/}"
 }
 
 require_target_base() {
